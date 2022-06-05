@@ -50,11 +50,11 @@ $ status-bar log stdout
 # During development it may be useful to use the debug target, so
 # that both the bar and logging goes to stdout:
 $ status-bar run debug
-2022/05/28 23:03:47.223 ptoseis INFO [user:586] - starting
-2022/05/28 23:03:47.336 ptoseis DEBUG [user:525] - consuming [:temp nil]
-2022/05/28 23:03:47.342 ptoseis INFO [user:136] - bar=
-2022/05/28 23:03:47.343 ptoseis DEBUG [user:525] - consuming [:battery "batt: 87% D 06:06"]
-2022/05/28 23:03:47.343 ptoseis INFO [user:136] - bar=  batt: 87% D 06:06
+2022/05/28 23:03:47.223 INFO  starting
+2022/05/28 23:03:47.336 DEBUG consuming [:temp nil]
+2022/05/28 23:03:47.342 INFO  bar=
+2022/05/28 23:03:47.343 DEBUG consuming [:battery "batt: 87% D 06:06"]
+2022/05/28 23:03:47.343 INFO  bar=  batt: 87% D 06:06
 ...
 
 # Again for development, you can specify the monitors you want to
