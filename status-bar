@@ -69,11 +69,6 @@
 
 (defn start-thread [f] (-> f Thread. .start))
 
-(defn sh-error-message [argv p]
-  (str "command " argv " exit status " (:status p) "\n"
-       " out: " (:out p) "\n"
-       " err: " (:err p)))
-
 ; Returns list of PIDs (as strings) found using pgrep, or []
 (defn pgrep [& args]
   (let [argv (concat ["pgrep"] args)
