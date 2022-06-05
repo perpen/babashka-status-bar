@@ -1,0 +1,172 @@
+#!/usr/bin/env bb
+; kak: filetype=clojure
+
+(require
+ '[clojure.java.io :as io]
+ '[clojure.string :as str]
+ '[babashka.fs :as fs]
+ '[babashka.process :as p]
+ '[taoensso.timbre :as timbre :refer [debug error spy]])
+
+(def script-name (fs/file-name *file*))
+
+(defn truncate [s n]
+  (subs s 0 (min (count s) n)))
+
+(defn pad-number [d width]
+  (format (str "%" width "d") (java.lang.Math/round d)))
+
+(defn pad-string [s width]
+  (format (str "%" width "s") (truncate s width)))
+
+(defn path-exists? [path]
+  (.exists (io/file path)))
+
+(defn exit [status msg]
+  (when-not (nil? msg)
+    (println msg))
+  (System/exit status))
+
+(def os-name (-> (System/getProperty "os.name") str/lower-case keyword))
+
+(defn emit-cpu-results
+  "Prints the command using the most cpu (summing up cpu for all processes for the
+   the command), as well as the total cpu used.
+   The cpu info is collected by parsing the output of pidstat or top."
+  [interval total-cpu-threshold]
+
+  (when (and (= os-name :linux) (not (path-exists? "/usr/bin/pidstat")))
+     (throw (Exception. "missing required /usr/bin/pidstat binary")))
+  (when (= os-name :darwin)
+     (throw (Exception. "not implemented for mac, to be done using top")))
+
+  (let [nprocs (case os-name
+                 :linux (let [cpuinfo (slurp (java.io.FileReader. "/proc/cpuinfo"))]
+                          (-> (re-seq #"(processor\s+:)" cpuinfo)
+                              count))
+                 :darwin "FIXME")
+
+        stats-command (case os-name
+                        :linux ["pidstat" (str interval)]
+                        :darwin ["FIXME" (str interval)])
+
+        stats-process (p/process stats-command
+                                 {:err :inherit
+                                  :shutdown p/destroy-tree})
+
+        publish (fn [data]
+                  (debug "data=" data)
+                  (let [; First summarise the collected data, computing:
+                        ; - the total cpu usage
+                        ; - the command using using the most cpu, the summed cpu usage
+                        ;   for all its processes, and the number of processes
+                        summary (reduce
+                                  (fn [acc command-cpu]
+                                    (let [{total-cpu :total-cpu
+                                           [_ old-sum _] :top-command} acc
+                                          [new-command new-cpus] command-cpu
+                                          new-sum (apply + new-cpus)
+                                          new-count (count new-cpus)
+                                          total-cpu (+ total-cpu new-sum)]
+                                      (if (> new-sum old-sum)
+                                        (merge acc {:total-cpu total-cpu
+                                                    :top-command [new-command new-sum new-count]})
+                                        (assoc acc :total-cpu total-cpu))))
+                                  {:total-cpu 0
+                                   :top-command ["?" 0 0]}
+                                  data)
+
+                        {total-cpu :total-cpu
+                         [top-name top-cpu top-count] :top-command} summary
+
+                        ; Normalise cpu usage for number of cores
+                        total-cpu (/ total-cpu nprocs)
+                        top-cpu (/ top-cpu nprocs)
+
+                        ; Format the result, with constant width, right-aligned
+                        ; eg "    chrome*4  25% /  70%"
+                        ; meaning 4 chrome processes are using a total of 25% cpu,
+                        ; the total cpu usage on the machine being 70%.
+                        name-and-count-max-width 12 ; eg "    chrome*4"
+                        msg (when (>= total-cpu total-cpu-threshold)
+                              (let [count-s (if (> top-count 1)
+                                              (str "*" top-count)
+                                              "")
+                                    name-max-with (- name-and-count-max-width (count count-s))
+                                    name-s (subs top-name 0 (min (count top-name)
+                                                                 name-max-with))
+                                    name-and-count (str name-s count-s)]
+                                (str (pad-string name-and-count name-and-count-max-width)
+                                     " "
+                                     (pad-number top-cpu 3)
+                                     "% /"
+                                     (pad-number total-cpu 3)
+                                     "%")))]
+                    (println (or msg ""))))
+
+        ;; If the line provides cpu info for a process, returns a pair [command, cpu],
+        ;; else returns nil.
+        parse-cpu-line
+        (case os-name
+          :linux
+          (fn [line]
+            (when (re-matches #"\d\d:\d\d:\d\d\s+\d.*" line)
+              (let [tokens (str/split line #"\s+")
+                    ;; format: timestamp UID PID %usr %system %guest %wait %CPU CPU Command
+                    [_timestamp _UID _PID pusr psystem _pguest _pwait _pCPU _CPU command] tokens
+                    pusr (Float/parseFloat pusr)
+                    psystem (Float/parseFloat psystem)
+                    cpu (+ pusr psystem)]
+                [command cpu])))
+
+          :darwin
+          (fn [line]
+            nil))
+
+        data (atom {})
+
+        ; Accumulates process info into map `data`, mapping a command name to
+        ; a list of the cpu usages for all its processes, eg:
+        ;   {"chrome" [2.0, 1.0], "pidstat" [1.0]}
+        handle-line
+        (fn [line]
+          (let [parsed (parse-cpu-line line)]
+            (if (nil? parsed)
+              ; We are in a section without cpu info, check if anything to publish
+              (when-not (empty? @data)
+                (publish @data)
+                (reset! data {}))
+              ; Else store the new cpu usage for a command
+              (let [[command cpu] parsed
+                    current-cpus (get @data command [])
+                    cpus (conj current-cpus cpu)]
+                (swap! data assoc command cpus)))))]
+
+    (with-open [rdr (io/reader (:out stats-process))]
+      (binding [*in* rdr]
+        (loop [line (read-line)]
+          (when-not (nil? line)
+            (handle-line line)
+            (recur (read-line)))))
+      (let [code (:exit @stats-process)]
+        (error (str "command \"" (str/join " " stats-command) "\" "
+                    "exited with status " code))
+        (exit 1 nil)))))
+
+(let [args *command-line-args*
+      debug? (= (first args) "-d")
+      args (if debug? (next args) args)
+      _  (when (not= (count args) 2)
+           (exit 2 (str "Usage: " script-name " [-d] PERIOD THRESHOLD\n"
+                        "Will sample cpu usage over PERIOD seconds, and print a summary line if\n"
+                        "total cpu usage is greater than THRESHOLD percent, else a blank line.\n"
+                        "Options:\n"
+                        "   -d\tenable debug logging to stdout")))
+      [period-s threshold-s] args
+      period (Integer/parseInt period-s)
+      threshold (Integer/parseInt threshold-s)]
+    (when-not (some #{os-name} [:darwin :linux])
+      (exit 1 (str "can't handle os " os-name)))
+    (timbre/merge-config! {:output-fn #(str (-> (:level %) name str/upper-case) " " (force (:msg_ %)))
+                           :min-level (if debug? :debug :info)})
+    (emit-cpu-results period threshold))

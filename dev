@@ -1,0 +1,9 @@
+#!/bin/bash
+set -ueo pipefail
+
+copy() {
+    cp -v ~/bin/status-bar{,-cpu} .
+}
+
+cd "$(dirname $0)"
+copy
