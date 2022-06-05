@@ -300,16 +300,18 @@
                                                            blinker-chan])]
                                    (if (= c blinker-chan)
                                      ; got a message
-                                     (let [[s1 s2] msg
-                                           time (if (nil? s1)
-                                                  idle-time
-                                                  0)]
+                                     (let [[s1 s2] msg]
                                        (push-result :alert s1)
-                                       (recur time s1 s2))
+                                       (recur (if (and (nil? s1) (nil? s2))
+                                                idle-time
+                                                0)
+                                              s1 s2))
                                      ; got a timeout
                                      (do
-                                       (push-result :alert s1)
-                                       (recur blink-time s2 s1)))))]
+                                       (if (and (nil? s1) (nil? s2))
+                                         (recur idle-time nil nil)
+                                         (do (push-result :alert s1)
+                                             (recur blink-time s2 s1)))))))]
                   (start-thread blinker)
                   (loop [[op s] (as/<!! alert-chan)]
                      (let [old-count (count @alerts)]
@@ -343,7 +345,7 @@
                 "-c"
                 "for i in $(seq 2); do echo stdout $i; echo stderr $i 1>&2; sleep 2; done; echo quitting; exit 6"]}
 
-     {:id :time
+     {:id :time-with-compute
       :label ""
       :interval (seconds 1)
       :compute #(.format (LocalDateTime/now) time-formatter)}
@@ -563,7 +565,7 @@
 
   (let [duplicate-ids (->> (map :id monitor-specs)
                            (frequencies)
-                           (filter (fn [[id n]] (> n 1)))
+                           (filter (fn [[_id n]] (> n 1)))
                            (map first))
         _ (when (seq duplicate-ids)
             (exit 2 (str "duplicate monitor ids in monitor-specs: "
@@ -637,8 +639,8 @@
         (try
           (publisher (assemble-bar))
           (catch Exception e
-                 (error e "error invoking publisher, exiting")
-                 (exit 1 "error invoking publisher, exiting"))))
+            (error "error invoking publisher, exiting:" (ex-message e))
+            (exit 1 "error invoking publisher, exiting"))))
       (recur (as/<!! results-chan)))
     (while true (Thread/sleep 1000))))
 

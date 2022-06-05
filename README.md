@@ -21,7 +21,7 @@ $ status-bar
 Usage: status-bar run TARGET
    or: status-bar run TARGET MONITOR ...
        Can be used during development to only start specific monitors,
-       whatever the value of their `enabled?`` property.
+       whatever the value of their `enabled?` property.
    or: status-bar log TARGET [COMMAND ...]
        View the log file using less (or the specified command).
    or: status-bar trigger MONITOR ...
