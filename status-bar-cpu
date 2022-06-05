@@ -13,11 +13,17 @@
 (defn truncate [s n]
   (subs s 0 (min (count s) n)))
 
-(defn pad-number [d width]
+(defn pad-number [width d]
   (format (str "%" width "d") (java.lang.Math/round d)))
 
-(defn pad-string [s width]
-  (format (str "%" width "s") (truncate s width)))
+(defn pad-string* [width s right?]
+  (format (str "%" (if right? "-" "") width "s") (truncate s width)))
+
+(defn pad-left [width s]
+  (pad-string* width s false))
+
+(defn pad-right [width s]
+  (pad-string* width s true))
 
 (defn path-exists? [path]
   (.exists (io/file path)))
@@ -96,11 +102,11 @@
                                     name-s (subs top-name 0 (min (count top-name)
                                                                  name-max-with))
                                     name-and-count (str name-s count-s)]
-                                (str (pad-string name-and-count name-and-count-max-width)
+                                (str (pad-left name-and-count-max-width name-and-count)
                                      " "
-                                     (pad-number top-cpu 3)
+                                     (pad-number 3 top-cpu)
                                      "% /"
-                                     (pad-number total-cpu 3)
+                                     (pad-number 3 total-cpu)
                                      "%")))]
                     (println (or msg ""))))
 
@@ -167,6 +173,7 @@
       threshold (Integer/parseInt threshold-s)]
     (when-not (some #{os-name} [:darwin :linux])
       (exit 1 (str "can't handle os " os-name)))
-    (timbre/merge-config! {:output-fn #(str (-> (:level %) name str/upper-case) " " (force (:msg_ %)))
+    (timbre/merge-config! {:output-fn #(str (->> % :level name str/upper-case (pad-right 5)) " "
+                                            (force (:msg_ %)))
                            :min-level (if debug? :debug :info)})
     (emit-cpu-results period threshold))

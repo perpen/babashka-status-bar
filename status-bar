@@ -37,12 +37,12 @@
      (let [babashka-version (System/getProperty "babashka.version")
            compare-version (fn [a b]
                              (let [to-vec (fn [v]
-                                            (mapv #(Integer. %)
+                                            (mapv Integer.
                                                   (take 3 (str/split v  #"[\.\-]"))))
                                    a-vec (to-vec a)
                                    b-vec (to-vec b)]
                                (compare a-vec b-vec)))]
-       (if (< (compare-version babashka-version min-version) 0)
+       (if (neg? (compare-version babashka-version min-version))
          (exit 1 (str script-name " cannot run with babashka " babashka-version
                       " as it requires  version >= " min-version)))))
 
@@ -59,8 +59,14 @@
 
 (defn minutes [n] (* n 60 1000))
 
-(defn pad-string [width s]
-  (format (str "%" width "s") (truncate s width)))
+(defn pad-string* [width s right?]
+  (format (str "%" (if right? "-" "") width "s") (truncate s width)))
+
+(defn pad-left [width s]
+  (pad-string* width s false))
+
+(defn pad-right [width s]
+  (pad-string* width s true))
 
 (defn path-exists? [path] (.exists (io/file path)))
 
@@ -98,13 +104,13 @@
 (def os-name (-> (System/getProperty "os.name") str/lower-case keyword))
 
 (def targets
-  {"dwm" {:publisher #(sh-or-throw "xsetroot" "-name" %)}
+  {"dwm" {:publisher (partial sh-or-throw "xsetroot" "-name")}
 
    ;; my tmux.conf has:
    ;;   set -g status-interval 1
    ;;   set -g status-right "#(cat ~/.tmux-bar)"
    ;;   set -g status-right-length 200
-   "tmux" {:publisher #(spit (home-path ".tmux-bar") %)
+   "tmux" {:publisher (partial spit (home-path ".tmux-bar"))
            :blink-time (seconds 1)}
 
    "stdout" {:publisher println}
@@ -134,6 +140,9 @@
                     {}
                     {:println nil
                      :spit (timbre/spit-appender {:fname file})})
+       :output-fn #(str (-> % :timestamp_ force) " "
+                        (->> % :level name str/upper-case (pad-right 5)) " "
+                        (force (:msg_ %)))
        :min-level level
        :timestamp-opts {:pattern "yyyy/MM/dd HH:mm:ss.SSS"}})))
 
@@ -357,7 +366,7 @@
       :enabled? (path-exists? (home-path "bin/laptop"))
       :label "vol: "
       :interval (seconds 10)
-      :compute #(pad-string 4 (sh-out "laptop" "volume" "status"))}
+      :compute #(pad-left 4 (sh-out "laptop" "volume" "status"))}
 
      {:id :profile
       :enabled? (path-exists? (home-path "bin/laptop"))
@@ -559,11 +568,13 @@
         _ (when (seq duplicate-ids)
             (exit 2 (str "duplicate monitor ids in monitor-specs: "
                          (str/join ", " duplicate-ids))))
+
         valid-ids (set (map :id monitor-specs))
         requested-ids (set only)
         invalid-ids (set/difference requested-ids valid-ids)
         _ (when (seq invalid-ids)
             (exit 2 (str "aborting - unknown monitors: " (str/join " " invalid-ids))))
+
         active-specs (if (seq only)
                        (filter #(some #{(-> % :id)} requested-ids)
                                monitor-specs)
@@ -571,14 +582,9 @@
                                   (:enabled? %)
                                   true)
                                monitor-specs))
-        monitors (map #(make-monitor
-                         :id (:id %)
-                         :label (:label %)
-                         :interval (:interval %)
-                         :compute (:compute %)
-                         :thread (:thread %)
-                         :command (:command %))
+        monitors (map #(apply make-monitor (apply concat %))
                       active-specs)]
+
     (info "enabled monitors:" (vec (map :id monitors)))
     (when-not (seq monitors)
       (exit 1 "no monitors"))
@@ -606,7 +612,7 @@
         watch-for-triggers (fn []
                              (while true
                                (let [paths (map str (fs/list-dir (cache-path target)))
-                                     files (filter #(not (fs/directory? %)) paths)]
+                                     files (filter (complement fs/directory?) paths)]
                                  (doseq [path files]
                                    (let [id (fs/file-name path)]
                                      (info "trigger:" id)
@@ -672,7 +678,7 @@
                           process-re (str "bb +([^ ]+/)?" script-name " +run +" target "( .*)?$")
                           matches (pgrep "-u" (System/getenv "USER") "-f" process-re)
                           other-pids (filter #(not= % my-pid) matches)
-                          other-pids (map #(str "-" %) other-pids)
+                          other-pids (map (partial str "-") other-pids)
                           _ 1]
                       (when-not (empty? other-pids)
                         (apply sh-or-throw (vec (concat ["kill" "--"] other-pids))))))]
