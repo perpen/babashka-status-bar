@@ -9,7 +9,7 @@ Artificial output example (normally only noteworthy info is shown) with my perso
 cpu:     chrome   1% /  2% | mem: 23% | wifi: 38% | cloud: 2 mach | vm: 1 mach | disk: 20% | prof: low-power | git: 3 dirty | mnt: google-drive, usb | vpn: on | security: ok | arch: 51 updates | temp: 37C | batt: 78% D 06:07 | vol:  52% | Sun 28 May 23:44:16
 ```
 
-It is not meant to be used as-is - customise it by changing the code. If you have a problem, check the BUGS section below, check the log, use the `debug` target.
+It is not meant to be used as-is - customise it by changing the code. Start by deleting all the monitors you don't care for. If you have a problem, check the BUGS section below, check the log, use the `debug` target.
 
 This script is the one I use at home and is very linux-centric. Many of the monitors make sense only on my own setup, but you won't be surprised to find clojure is a great fit for implementing your own ones. Plus babashka starts up very quickly (and is trivial to deploy as it is just one binary).
 
@@ -135,5 +135,3 @@ The third line was blank because the total cpu usage was less than the threshold
 The fourth line was not blank, the monitor would reappear on the bar.
 
 ## Bugs
-
-- Not tested on mac

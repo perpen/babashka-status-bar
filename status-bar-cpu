@@ -3,6 +3,7 @@
 
 (require
  '[clojure.java.io :as io]
+ '[clojure.java.shell :refer [sh]]
  '[clojure.string :as str]
  '[babashka.fs :as fs]
  '[babashka.process :as p]
@@ -14,7 +15,7 @@
   (subs s 0 (min (count s) n)))
 
 (defn pad-number [width d]
-  (format (str "%" width "d") (java.lang.Math/round d)))
+  (format (str "%" width "d") (java.lang.Math/round (double d))))
 
 (defn pad-string* [width s right?]
   (format (str "%" (if right? "-" "") width "s") (truncate s width)))
@@ -33,7 +34,54 @@
     (println msg))
   (System/exit status))
 
-(def os-name (-> (System/getProperty "os.name") str/lower-case keyword))
+(def os-config
+  "OS-specific things.
+   - nprocs: number of cores.
+   - stats-command: command that should run continuously, sampling cpu for all processes
+     over the given period.
+   - parse-cpu-line: Function called on each line printed by the stats-command.
+     If the line provides cpu info for a process, returns a pair [command, cpu],
+     else returns nil."
+  (let [os (let [os-name (-> (System/getProperty "os.name") str/lower-case)]
+             (cond
+               (str/starts-with? os-name "mac") :mac
+               (= os-name "linux") :linux
+               :else (exit 1 (str "unsupported os: " os-name))))]
+    (when (and (= os :linux) (not (path-exists? "/usr/bin/pidstat")))
+       (throw (Exception. "missing required /usr/bin/pidstat binary")))
+    (case os
+      :linux {:nprocs (let [cpuinfo (slurp (java.io.FileReader. "/proc/cpuinfo"))]
+                        (-> (re-seq #"(processor\s+:)" cpuinfo)
+                            count))
+              :stats-command (fn [interval]
+                               ["pidstat" (str interval)])
+              :parse-cpu-line (fn [line]
+                                (when (re-matches #"\d\d:\d\d:\d\d\s+\d.*" line)
+                                  (let [tokens (str/split line #"\s+")
+                                        ;; format: timestamp UID PID %usr %system %guest %wait %CPU CPU Command
+                                        [_timestamp _UID _PID pusr psystem _pguest _pwait _pCPU _CPU command] tokens
+                                        pusr (Float/parseFloat pusr)
+                                        psystem (Float/parseFloat psystem)
+                                        cpu (+ pusr psystem)]
+                                    [command cpu])))}
+      :mac {:nprocs (try
+                      (let [p (sh "sysctl" "-n" "hw.ncpu")]
+                        (when-not (zero? (:exit p))
+                          (exit 1 (str "unable to get number of cores: " p)))
+                        (-> p :out str/trim Integer/parseInt))
+                      (catch Exception e
+                        (exit 1 (str "unable to get number of cores: " e))))
+
+            :stats-command (fn [interval]
+                             ["top" "-stats" "cpu,command" "-l" "0" "-s" interval])
+            :parse-cpu-line (fn [line]
+                              (when (re-matches #"[\d.]+\s.*" line)
+                                (let [tokens (str/split line #"\s+")
+                                      ;; format: %CPU COMMAND
+                                      [cpu-s command] tokens
+                                      cpu (Float/parseFloat cpu-s)]
+                                  (when (> cpu 0)
+                                    [command cpu]))))})))
 
 (defn emit-cpu-results
   "Prints the command using the most cpu (summing up cpu for all processes for the
@@ -41,22 +89,11 @@
    The cpu info is collected by parsing the output of pidstat or top."
   [interval total-cpu-threshold]
 
-  (when (and (= os-name :linux) (not (path-exists? "/usr/bin/pidstat")))
-     (throw (Exception. "missing required /usr/bin/pidstat binary")))
-  (when (= os-name :darwin)
-     (throw (Exception. "not implemented for mac, to be done using top")))
+  (let [{nprocs :nprocs
+         stats-command :stats-command
+         parse-cpu-line :parse-cpu-line} os-config
 
-  (let [nprocs (case os-name
-                 :linux (let [cpuinfo (slurp (java.io.FileReader. "/proc/cpuinfo"))]
-                          (-> (re-seq #"(processor\s+:)" cpuinfo)
-                              count))
-                 :darwin "FIXME")
-
-        stats-command (case os-name
-                        :linux ["pidstat" (str interval)]
-                        :darwin ["FIXME" (str interval)])
-
-        stats-process (p/process stats-command
+        stats-process (p/process (stats-command interval)
                                  {:err :inherit
                                   :shutdown p/destroy-tree})
 
@@ -110,25 +147,6 @@
                                      "%")))]
                     (println (or msg ""))))
 
-        ;; If the line provides cpu info for a process, returns a pair [command, cpu],
-        ;; else returns nil.
-        parse-cpu-line
-        (case os-name
-          :linux
-          (fn [line]
-            (when (re-matches #"\d\d:\d\d:\d\d\s+\d.*" line)
-              (let [tokens (str/split line #"\s+")
-                    ;; format: timestamp UID PID %usr %system %guest %wait %CPU CPU Command
-                    [_timestamp _UID _PID pusr psystem _pguest _pwait _pCPU _CPU command] tokens
-                    pusr (Float/parseFloat pusr)
-                    psystem (Float/parseFloat psystem)
-                    cpu (+ pusr psystem)]
-                [command cpu])))
-
-          :darwin
-          (fn [line]
-            nil))
-
         data (atom {})
 
         ; Accumulates process info into map `data`, mapping a command name to
@@ -171,8 +189,6 @@
       [period-s threshold-s] args
       period (Integer/parseInt period-s)
       threshold (Integer/parseInt threshold-s)]
-    (when-not (some #{os-name} [:darwin :linux])
-      (exit 1 (str "can't handle os " os-name)))
     (timbre/merge-config! {:output-fn #(str (->> % :level name str/upper-case (pad-right 5)) " "
                                             (force (:msg_ %)))
                            :min-level (if debug? :debug :info)})

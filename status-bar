@@ -5,9 +5,6 @@
 ;; Requires babashka >= 0.8.3
 
 ; FIXME
-; - mac:
-;   - test it
-;   - can't kill process groups? what then?
 ; - use preload for functions common to multiple scripts?
 ; - throttle overactive monitors?
 
@@ -102,6 +99,7 @@
 
 ; eg :linux or :darwin
 (def os-name (-> (System/getProperty "os.name") str/lower-case keyword))
+(def os-name :darwin)
 
 (def targets
   {"dwm" {:publisher (partial sh-or-throw "xsetroot" "-name")}
@@ -269,10 +267,13 @@
    the left, so at the end of this list."
 
   (let [time-formatter (DateTimeFormatter/ofPattern "E dd MMM HH:mm:ss")
-        interface (let [matches (fs/glob "/sys/class/net" "wl*")]
-                    (if (and matches (> (count matches) 0))
-                      (-> matches first fs/file-name)
-                      (warn "cannot identify wifi interface")))
+        interface (try
+                    (let [matches (fs/glob "/sys/class/net" "wl*")]
+                      (if (and matches (> (count matches) 0))
+                        (-> matches first fs/file-name)
+                        (warn "cannot identify wifi interface")))
+                    (catch Exception e
+                      nil))
         temp-path "/sys/class/thermal/thermal_zone0/temp"
 
         ; For the :alert monitor
@@ -473,7 +474,7 @@
       :label "git: "
       :interval (minutes 60)
       :compute #(let [out (sh-out "git2" "status" "--behind")]
-                  (when (not= out "ok")
+                  (when-not (empty? out)
                     out))}
 
      ; Shows down status, low signal, SSID if not at home.
@@ -515,11 +516,11 @@
                     (str machines " mach")))}
 
      {:id :disk
-      :enabled? (path-exists? "/usr/bin/df")
+      :enabled? (or (path-exists? "/bin/df") (path-exists? "/usr/bin/df"))
       :label "disk: "
       :interval (minutes 5)
       :compute #(let [threshold 50
-                      out (sh-out "df" "/home")
+                      out (sh-out "df" "/")
                       percent (-> (re-find #"(\d+)%" out)
                                   second
                                   Integer/parseInt)]
@@ -541,8 +542,8 @@
                   (when (>= percent threshold)
                     (str percent "%")))}
 
-     (let [total-cpu-threshold 30
-           sampling-period 3]
+     (let [total-cpu-threshold 15
+           sampling-period 5]
        {:id :cpu
         :enabled? (or (and (= os-name :linux) (path-exists? "/usr/bin/pidstat"))
                       (= os-name :darwin))
@@ -677,13 +678,11 @@
                   kill-other-instances
                   (fn []
                     (let [my-pid (get-current-pid)
-                          process-re (str "bb +([^ ]+/)?" script-name " +run +" target "( .*)?$")
+                          process-re (str "bb(-0.8.3)? +([^ ]+/)?" script-name " +run +" target "( .*)?$")
                           matches (pgrep "-u" (System/getenv "USER") "-f" process-re)
-                          other-pids (filter #(not= % my-pid) matches)
-                          other-pids (map (partial str "-") other-pids)
-                          _ 1]
+                          other-pids (filter #(not= % my-pid) matches)]
                       (when-not (empty? other-pids)
-                        (apply sh-or-throw (vec (concat ["kill" "--"] other-pids))))))]
+                        (apply sh-or-throw (vec (concat ["kill" "-2" "--"] other-pids))))))]
 
               (when-not (contains? targets target)
                 (usage))
