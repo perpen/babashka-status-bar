@@ -2,7 +2,10 @@
 set -ueo pipefail
 
 copy() {
-    cp -v ~/bin/status-bar{,-cpu} .
+    for i in status-bar{,-cpu} ;do
+        cp -v ~/bin/$i.clj $i
+        sed -i "s/$i.clj/$i/g" status-bar
+    done
 }
 
 cd "$(dirname $0)"

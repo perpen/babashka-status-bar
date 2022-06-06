@@ -48,7 +48,7 @@
                (= os-name "linux") :linux
                :else (exit 1 (str "unsupported os: " os-name))))]
     (when (and (= os :linux) (not (path-exists? "/usr/bin/pidstat")))
-       (throw (Exception. "missing required /usr/bin/pidstat binary")))
+      (throw (Exception. "missing required /usr/bin/pidstat binary")))
     (case os
       :linux {:nprocs (let [cpuinfo (slurp (java.io.FileReader. "/proc/cpuinfo"))]
                         (-> (re-seq #"(processor\s+:)" cpuinfo)
@@ -104,20 +104,20 @@
                         ; - the command using using the most cpu, the summed cpu usage
                         ;   for all its processes, and the number of processes
                         summary (reduce
-                                  (fn [acc command-cpu]
-                                    (let [{total-cpu :total-cpu
-                                           [_ old-sum _] :top-command} acc
-                                          [new-command new-cpus] command-cpu
-                                          new-sum (apply + new-cpus)
-                                          new-count (count new-cpus)
-                                          total-cpu (+ total-cpu new-sum)]
-                                      (if (> new-sum old-sum)
-                                        (merge acc {:total-cpu total-cpu
-                                                    :top-command [new-command new-sum new-count]})
-                                        (assoc acc :total-cpu total-cpu))))
-                                  {:total-cpu 0
-                                   :top-command ["?" 0 0]}
-                                  data)
+                                 (fn [acc command-cpu]
+                                   (let [{total-cpu :total-cpu
+                                          [_ old-sum _] :top-command} acc
+                                         [new-command new-cpus] command-cpu
+                                         new-sum (apply + new-cpus)
+                                         new-count (count new-cpus)
+                                         total-cpu (+ total-cpu new-sum)]
+                                     (if (> new-sum old-sum)
+                                       (merge acc {:total-cpu total-cpu
+                                                   :top-command [new-command new-sum new-count]})
+                                       (assoc acc :total-cpu total-cpu))))
+                                 {:total-cpu 0
+                                  :top-command ["?" 0 0]}
+                                 data)
 
                         {total-cpu :total-cpu
                          [top-name top-cpu top-count] :top-command} summary
@@ -189,7 +189,7 @@
       [period-s threshold-s] args
       period (Integer/parseInt period-s)
       threshold (Integer/parseInt threshold-s)]
-    (timbre/merge-config! {:output-fn #(str (->> % :level name str/upper-case (pad-right 5)) " "
-                                            (force (:msg_ %)))
-                           :min-level (if debug? :debug :info)})
-    (emit-cpu-results period threshold))
+  (timbre/merge-config! {:output-fn #(str (->> % :level name str/upper-case (pad-right 5)) " "
+                                          (force (:msg_ %)))
+                         :min-level (if debug? :debug :info)})
+  (emit-cpu-results period threshold))

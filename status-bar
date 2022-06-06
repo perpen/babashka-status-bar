@@ -30,19 +30,6 @@
   (.println *err* msg)
   (System/exit status))
 
-#_ (defn check-min-version [min-version]
-     (let [babashka-version (System/getProperty "babashka.version")
-           compare-version (fn [a b]
-                             (let [to-vec (fn [v]
-                                            (mapv Integer.
-                                                  (take 3 (str/split v  #"[\.\-]"))))
-                                   a-vec (to-vec a)
-                                   b-vec (to-vec b)]
-                               (compare a-vec b-vec)))]
-       (if (neg? (compare-version babashka-version min-version))
-         (exit 1 (str script-name " cannot run with babashka " babashka-version
-                      " as it requires  version >= " min-version)))))
-
 (defn home-path [& path-components]
   (str/join fs/file-separator (concat [(System/getenv "HOME")] path-components)))
 
@@ -134,15 +121,15 @@
       (println "logging to" file)
       (spit file "\n" :append true)) ; check it's writable
     (timbre/merge-config!
-      {:appenders (if to-stdout
-                    {}
-                    {:println nil
-                     :spit (timbre/spit-appender {:fname file})})
-       :output-fn #(str (-> % :timestamp_ force) " "
-                        (->> % :level name str/upper-case (pad-right 5)) " "
-                        (force (:msg_ %)))
-       :min-level level
-       :timestamp-opts {:pattern "yyyy/MM/dd HH:mm:ss.SSS"}})))
+     {:appenders (if to-stdout
+                   {}
+                   {:println nil
+                    :spit (timbre/spit-appender {:fname file})})
+      :output-fn #(str (-> % :timestamp_ force) " "
+                       (->> % :level name str/upper-case (pad-right 5)) " "
+                       (force (:msg_ %)))
+      :min-level level
+      :timestamp-opts {:pattern "yyyy/MM/dd HH:mm:ss.SSS"}})))
 
 ;; For storing monitor results, maps monitor id to its last message
 (def results (atom {}))
@@ -172,16 +159,16 @@
 
     (with-open [reader-stdout (io/reader (:out proc))
                 reader-stderr (io/reader (:err proc))]
-       (let [stdout-chan (reader->channel reader-stdout)
-             stderr-chan (reader->channel reader-stderr)]
-         (loop []
-           (let [[line c] (as/alts!! [stdout-chan stderr-chan])
-                 handler (condp = c
-                           stdout-chan handle-stdout
-                           stderr-chan handle-stderr)]
-             (when (not= line :exit)
-               (handler line)
-               (recur))))))
+      (let [stdout-chan (reader->channel reader-stdout)
+            stderr-chan (reader->channel reader-stderr)]
+        (loop []
+          (let [[line c] (as/alts!! [stdout-chan stderr-chan])
+                handler (condp = c
+                          stdout-chan handle-stdout
+                          stderr-chan handle-stderr)]
+            (when (not= line :exit)
+              (handler line)
+              (recur))))))
     (:exit @proc)))
 
 (defn emit-from-command
@@ -234,7 +221,7 @@
        :trigger-chan trigger-chan
        :thread (fn [_target]
                  (while true
-                   #_ (debug "emitting" id)
+                   #_(debug "emitting" id)
                    (emitter)
                    (as/alts!! [(as/timeout interval)
                                trigger-chan])))})
@@ -253,13 +240,13 @@
                             (or id "(unknown)"))))))
 
 (defn trigger-externally
-   "Creates files in a directory under watch"
-   [monitor-ids]
-   (doseq [id monitor-ids]
-     (doseq [target (keys targets)]
-       (let [path (cache-path target id)]
-         (io/make-parents path)
-         (spit path "")))))
+  "Creates files in a directory under watch"
+  [monitor-ids]
+  (doseq [id monitor-ids]
+    (doseq [target (keys targets)]
+      (let [path (cache-path target id)]
+        (io/make-parents path)
+        (spit path "")))))
 
 (def monitor-specs
   "The order in the list defines the visual order, from right to left.
@@ -315,17 +302,17 @@
                                              (recur blink-time s2 s1)))))))]
                   (start-thread blinker)
                   (loop [[op s] (as/<!! alert-chan)]
-                     (let [old-count (count @alerts)]
-                       (case op
-                         :add (swap! alerts conj s)
-                         :remove (swap! alerts disj s))
-                       (when (not= (count @alerts) old-count)
-                         (if (empty? @alerts)
-                           (as/>!! blinker-chan [nil nil])
-                           (let [on-s (str "*** " (str/join ", " @alerts) " ***")
-                                 off-s (apply str (repeat (count on-s) \space))]
-                             (as/>!! blinker-chan [on-s off-s])))))
-                     (recur (as/<!! alert-chan)))))}
+                    (let [old-count (count @alerts)]
+                      (case op
+                        :add (swap! alerts conj s)
+                        :remove (swap! alerts disj s))
+                      (when (not= (count @alerts) old-count)
+                        (if (empty? @alerts)
+                          (as/>!! blinker-chan [nil nil])
+                          (let [on-s (str "*** " (str/join ", " @alerts) " ***")
+                                off-s (apply str (repeat (count on-s) \space))]
+                            (as/>!! blinker-chan [on-s off-s])))))
+                    (recur (as/<!! alert-chan)))))}
 
      ; Test for :alert
      {:id :alert-test
@@ -399,8 +386,8 @@
                     (str percent
                          "% "
                          (case status
-                               "Charging" "C"
-                               "Discharging" "D")
+                           "Charging" "C"
+                           "Discharging" "D")
                          " "
                          duration)))}
 
@@ -410,8 +397,8 @@
       :interval (seconds 60)
       :compute #(let [threshold 55
                       temp (-> temp-path slurp str/trim Integer/parseInt (/ 1000))]
-                   (when (> temp threshold)
-                     (str temp "C")))}
+                  (when (> temp threshold)
+                    (str temp "C")))}
 
      {:id :arch
       :enabled? (path-exists? "/usr/bin/pacman")
@@ -467,7 +454,7 @@
                        mine (filter #(str/starts-with? % "/mnt/")
                                     mount-points)
                        names (map fs/file-name mine)]
-                    (str/join ", " names)))}
+                   (str/join ", " names)))}
 
      {:id :git
       :enabled? (path-exists? (home-path "bin/git2"))
@@ -489,18 +476,18 @@
                       matches (re-matches #"(?s).*SSID:\s+([^\s]+)\s.*signal:\s+-(\d+) dBm.*"
                                           out)]
                   (cond
-                     matches (let [[_ ssid signal-s] matches
-                                   not-home? (not= ssid home-ssid)
-                                   signal (Integer/parseInt signal-s)
-                                   quality (int (* (- 90 signal) (/ 100 60)))]
-                               (when (or not-home? (< quality quality-threshold))
-                                 (str (if not-home? (str ssid " ") "")
-                                      quality "%")))
+                    matches (let [[_ ssid signal-s] matches
+                                  not-home? (not= ssid home-ssid)
+                                  signal (Integer/parseInt signal-s)
+                                  quality (int (* (- 90 signal) (/ 100 60)))]
+                              (when (or not-home? (< quality quality-threshold))
+                                (str (if not-home? (str ssid " ") "")
+                                     quality "%")))
 
-                     (= out "Not connected.") "down"
+                    (= out "Not connected.") "down"
 
-                     :else (do
-                             (warn "wifi monitor: unexpected iw output:" out)
+                    :else (do
+                            (warn "wifi monitor: unexpected iw output:" out)
                             "BUG")))}
 
      {:id :vm
@@ -600,7 +587,7 @@
           thread (:thread monitor)]
       (cond
         thread (start-thread #(thread target))
-       :else (info "monitor" id "is disabled"))))
+        :else (info "monitor" id "is disabled"))))
 
   ; Listen for triggers
   (let [monitor-by-id (fn [id]
@@ -695,7 +682,7 @@
 
       trigger (fn []
                 (when (zero? (count args))
-                    (usage))
+                  (usage))
                 (let [monitor-ids args]
                   (trigger-externally monitor-ids)))
 
@@ -709,9 +696,8 @@
                          argv (concat [(first command)] command [log])]
                      (p/exec argv)
                      nil)))]
-
-    (case command
-      "run" (run)
-      "trigger" (trigger)
-      "log" (view-log)
-      (usage)))
+  (case command
+    "run" (run)
+    "trigger" (trigger)
+    "log" (view-log)
+    (usage)))
