@@ -26,8 +26,9 @@
 
 (def script-name (fs/file-name *file*))
 
-(defn exit [status msg]
-  (.println *err* msg)
+(defn exit [status & msg]
+  (when msg
+    (.println *err* (str/join " " msg)))
   (System/exit status))
 
 (defn home-path [& path-components]
@@ -542,7 +543,7 @@
      {:id :dnsmasq
       :enabled? (path-exists? "/usr/bin/dnsmasq")
       :label "dnsmasq: "
-      :command ["status-bar-dnsmasq"]}]))
+      :command ["status-bar-dnsmasq.clj"]}]))
 
 (defn make-monitors
   "From `monitor-specs` creates monitors.
@@ -660,7 +661,7 @@
                                             (reify SignalHandler
                                               (handle [_ _]
                                                 (warn "received SIGINT, exiting")
-                                                (exit 1 "received SIGINT, exiting")))))
+                                                (exit 1)))))
 
                   kill-other-instances
                   (fn []
