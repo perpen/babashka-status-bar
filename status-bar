@@ -586,9 +586,7 @@
   (doseq [monitor monitors]
     (let [id (:id monitor)
           thread (:thread monitor)]
-      (cond
-        thread (start-thread #(thread target))
-        :else (info "monitor" id "is disabled"))))
+      thread (start-thread #(thread target))))
 
   ; Listen for triggers
   (let [monitor-by-id (fn [id]
@@ -694,7 +692,7 @@
                      (usage))
                    (let [log (log-path target)
                          command (or command ["less" "-S" "+F"])
-                         argv (concat [(first command)] command [log])]
+                         argv (concat command [log])]
                      (p/exec argv)
                      nil)))]
   (case command
