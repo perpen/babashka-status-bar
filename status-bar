@@ -282,6 +282,7 @@
                       blinker-chan (as/chan)
                       ; Reads blinker-chan for messages of the form [s1, s2], and
                       ; will have the :alert monitor display both strings in turn.
+                      ; FIXME yucky
                       blinker #(loop [delay idle-time
                                       s1 nil
                                       s2 nil]
@@ -371,7 +372,8 @@
       :enabled? (path-exists? "/usr/bin/acpi")
       :label "batt: "
       :interval (seconds 10)
-      :compute #(let [alert-threshold 10
+      :compute #(let [alert-threshold 15
+                      off-threshold 5
                       s (sh-out "acpi" "-b")
                       ;; Acpi output samples:
                       ;;   Battery 0: Charging, 85%, 00:15:35 until charged
@@ -380,9 +382,12 @@
                       matches (re-find #"Battery 0:\s+(\w+), (\d+)%(, +(\d\d:\d\d)(?::\d\d))?.*" s)
                       [_ status percent _ duration] matches
                       percent (Integer/parseInt percent)]
-                  (if (and (= status "Discharging") (< percent alert-threshold))
-                    (add-alert "power")
-                    (remove-alert "power"))
+                  (when (= status "Discharging")
+                    (if (< percent off-threshold)
+                      (sh-or-throw "sudo" "poweroff")
+                      (if (< percent alert-threshold)
+                        (add-alert "power")
+                        (remove-alert "power"))))
                   (when (not= status "Full")
                     (str percent
                          "% "
@@ -530,7 +535,7 @@
                   (when (>= percent threshold)
                     (str percent "%")))}
 
-     (let [total-cpu-threshold 15
+     (let [total-cpu-threshold 30
            sampling-period 5]
        {:id :cpu
         :enabled? (or (and (= os-name :linux) (path-exists? "/usr/bin/pidstat"))
@@ -584,9 +589,8 @@
 (defn start-monitoring [target monitors]
   ;; Start monitor threads
   (doseq [monitor monitors]
-    (let [id (:id monitor)
-          thread (:thread monitor)]
-      thread (start-thread #(thread target))))
+    (let [thread (:thread monitor)]
+      (start-thread #(thread target))))
 
   ; Listen for triggers
   (let [monitor-by-id (fn [id]
