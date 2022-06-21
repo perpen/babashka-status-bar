@@ -34,6 +34,13 @@
     (println msg))
   (System/exit status))
 
+(def os
+  (let [os-name (-> (System/getProperty "os.name") str/lower-case)]
+    (cond
+      (str/starts-with? os-name "mac") :mac
+      (= os-name "linux") :linux
+      :else (exit 1 (str "unsupported os: " os-name)))))
+
 (def os-config
   "OS-specific things.
    - nprocs: number of cores.
@@ -42,11 +49,7 @@
    - parse-cpu-line: Function called on each line printed by the stats-command.
      If the line provides cpu info for a process, returns a pair [command, cpu],
      else returns nil."
-  (let [os (let [os-name (-> (System/getProperty "os.name") str/lower-case)]
-             (cond
-               (str/starts-with? os-name "mac") :mac
-               (= os-name "linux") :linux
-               :else (exit 1 (str "unsupported os: " os-name))))]
+  (do
     (when (and (= os :linux) (not (path-exists? "/usr/bin/pidstat")))
       (throw (Exception. "missing required /usr/bin/pidstat binary")))
     (case os
@@ -71,7 +74,6 @@
                         (-> p :out str/trim Integer/parseInt))
                       (catch Exception e
                         (exit 1 (str "unable to get number of cores: " e))))
-
             :stats-command (fn [interval]
                              ["top" "-stats" "cpu,command" "-l" "0" "-s" interval])
             :parse-cpu-line (fn [line]

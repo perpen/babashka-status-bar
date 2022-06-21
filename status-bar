@@ -5,6 +5,7 @@
 ;; Requires babashka >= 0.8.3
 
 ; FIXME
+; - pass _target to compute and others?
 ; - use preload for functions common to multiple scripts?
 ; - throttle overactive monitors?
 
@@ -85,9 +86,13 @@
   (let [res (apply sh-or-throw argv)]
     (-> res :out str/trim)))
 
-; eg :linux or :darwin
-(def os-name (-> (System/getProperty "os.name") str/lower-case keyword))
-(def os-name :darwin)
+; Returns :linux or :mac
+(def os
+  (let [os-name (-> (System/getProperty "os.name") str/lower-case)]
+    (cond
+      (str/starts-with? os-name "mac") :mac
+      (= os-name "linux") :linux
+      :else (exit 1 (str "unsupported os: " os-name)))))
 
 (def targets
   {"dwm" {:publisher (partial sh-or-throw "xsetroot" "-name")}
@@ -386,9 +391,9 @@
                     (if (< percent off-threshold)
                       (sh-or-throw "sudo" "poweroff")
                       (if (< percent alert-threshold)
-                        (add-alert "power")
-                        (remove-alert "power"))))
+                        (add-alert "power"))))
                   (when (not= status "Full")
+                    (remove-alert "power")
                     (str percent
                          "% "
                          (case status
@@ -467,7 +472,7 @@
       :label "git: "
       :interval (minutes 60)
       :compute #(let [out (sh-out "git2" "status" "--behind")]
-                  (when-not (empty? out)
+                  (when-not (= out "ok")
                     out))}
 
      ; Shows down status, low signal, SSID if not at home.
@@ -475,7 +480,7 @@
       :enabled? (and interface (path-exists? "/usr/bin/iw"))
       :label "wifi: "
       :interval (seconds 10)
-      :compute #(let [quality-threshold 40
+      :compute #(let [quality-threshold 30
                       home-ssid "BTHub3-5NGQ"
 
                       out (sh-out "iw" "dev" interface "link")
@@ -498,15 +503,15 @@
 
      {:id :vm
       :enabled? (path-exists? "/usr/bin/virsh")
-      :label "vm: "
+      :label ""
       :interval (minutes 1)
-      :compute #(let [cmd ["virsh" "list" "--state-running" "--id"]
+      :compute #(let [cmd ["virsh" "list" "--state-running" "--name"]
                       lines (-> (apply sh-out cmd) (str/split #"\n"))
                       non-empty-lines (filter seq
                                               lines)
-                      machines (count non-empty-lines)]
-                  (when (> machines 0)
-                    (str machines " mach")))}
+                      machines (str/join " " non-empty-lines)]
+                  (when (seq non-empty-lines)
+                    machines))}
 
      {:id :disk
       :enabled? (or (path-exists? "/bin/df") (path-exists? "/usr/bin/df"))
@@ -538,8 +543,8 @@
      (let [total-cpu-threshold 30
            sampling-period 5]
        {:id :cpu
-        :enabled? (or (and (= os-name :linux) (path-exists? "/usr/bin/pidstat"))
-                      (= os-name :darwin))
+        :enabled? (or (and (= os :linux) (path-exists? "/usr/bin/pidstat"))
+                      (= os :darwin))
         :label "cpu: "
         :command ["status-bar-cpu"
                   sampling-period
@@ -554,7 +559,8 @@
   "From `monitor-specs` creates monitors.
    To help during development, if the `only` list of monitor ids is given,
    only these monitors will be enabled, whatever the value of their :enabled?
-   property."
+   property.
+   We exit if `monitor-specs` contains duplicated IDs or `only` is invalid."
   [& {:keys [only]}]
 
   (let [duplicate-ids (->> (map :id monitor-specs)
