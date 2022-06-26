@@ -363,7 +363,14 @@
       :enabled? (path-exists? (home-path "bin/laptop"))
       :label "vol: "
       :interval (seconds 10)
-      :compute #(pad-left 4 (sh-out "laptop" "volume" "status"))}
+      :compute #(sh-out "laptop" "volume" "status")}
+
+     {:id :brightness
+      :enabled? (path-exists? (home-path "bin/laptop"))
+      :label "lcd: "
+      :interval (seconds 60)
+      :compute #(str (sh-out "laptop" "brightness" "percent")
+                     "%")}
 
      {:id :profile
       :enabled? (path-exists? (home-path "bin/laptop"))
@@ -387,13 +394,13 @@
                       matches (re-find #"Battery 0:\s+(\w+), (\d+)%(, +(\d\d:\d\d)(?::\d\d))?.*" s)
                       [_ status percent _ duration] matches
                       percent (Integer/parseInt percent)]
-                  (when (= status "Discharging")
+                  (if (= status "Discharging")
                     (if (< percent off-threshold)
                       (sh-or-throw "sudo" "poweroff")
-                      (if (< percent alert-threshold)
-                        (add-alert "power"))))
+                      (when (< percent alert-threshold)
+                        (add-alert "power")))
+                    (remove-alert "power"))
                   (when (not= status "Full")
-                    (remove-alert "power")
                     (str percent
                          "% "
                          (case status
