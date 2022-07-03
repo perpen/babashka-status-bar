@@ -245,15 +245,6 @@
     (throw (Exception. (str "make-monitor: invalid combination of params for monitor with id "
                             (or id "(unknown)"))))))
 
-(defn trigger-externally
-  "Creates files in a directory under watch"
-  [monitor-ids]
-  (doseq [id monitor-ids]
-    (doseq [target (keys targets)]
-      (let [path (cache-path target id)]
-        (io/make-parents path)
-        (spit path "")))))
-
 (def monitor-specs
   "The order in the list defines the visual order, from right to left.
    For comfort, better to have the monitors changing frequently on
@@ -265,7 +256,7 @@
                       (if (and matches (> (count matches) 0))
                         (-> matches first fs/file-name)
                         (warn "cannot identify wifi interface")))
-                    (catch Exception e
+                    (catch Exception _
                       nil))
         temp-path "/sys/class/thermal/thermal_zone0/temp"
 
@@ -302,11 +293,10 @@
                                                 0)
                                               s1 s2))
                                      ; got a timeout
-                                     (do
-                                       (if (and (nil? s1) (nil? s2))
-                                         (recur idle-time nil nil)
-                                         (do (push-result :alert s1)
-                                             (recur blink-time s2 s1)))))))]
+                                     (if (and (nil? s1) (nil? s2))
+                                       (recur idle-time nil nil)
+                                       (do (push-result :alert s1)
+                                           (recur blink-time s2 s1))))))]
                   (start-thread blinker)
                   (loop [[op s] (as/<!! alert-chan)]
                     (let [old-count (count @alerts)]
@@ -475,10 +465,10 @@
                    (str/join ", " names)))}
 
      {:id :git
-      :enabled? (path-exists? (home-path "bin/git2"))
+      :enabled? (path-exists? (home-path "bin/git.clj"))
       :label "git: "
       :interval (minutes 60)
-      :compute #(let [out (sh-out "git2" "status" "--behind")]
+      :compute #(let [out (sh-out "git.clj" "status")]
                   (when-not (= out "ok")
                     out))}
 
@@ -647,6 +637,18 @@
             (exit 1 "error invoking publisher, exiting"))))
       (recur (as/<!! results-chan)))
     (while true (Thread/sleep 1000))))
+
+(defn trigger-externally
+  "Creates files in directories watched by status-bar processes"
+  [requested-ids]
+  (let [existing-ids (map (comp name :id) monitor-specs)]
+    (doseq [requested-id requested-ids]
+      (if (some #{requested-id} existing-ids)
+        (doseq [target (keys targets)]
+          (let [path (cache-path target requested-id)]
+            (io/make-parents path)
+            (spit path "")))
+        (println (str script-name ": unknown monitor: " requested-id))))))
 
 (let [command (first *command-line-args*)
       args (next *command-line-args*)
